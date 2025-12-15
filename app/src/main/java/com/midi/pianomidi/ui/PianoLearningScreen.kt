@@ -117,7 +117,7 @@ fun PianoLearningScreen(
         // 5. Visual Piano Keyboard (bottom half, larger)
         PianoKeyboard(
             currentNote = currentNote?.midiNote,
-            onNoteClick = if (isVirtualMode) onNoteClick else null,
+            onNoteClick = onNoteClick, // Always allow virtual keyboard, even when MIDI device is connected
             modifier = Modifier
                 .constrainAs(keyboardRef) {
                     top.linkTo(staffRef.bottom, margin = 8.dp)

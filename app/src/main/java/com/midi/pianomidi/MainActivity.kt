@@ -325,6 +325,25 @@ fun PianoLearningScreenContent(
                 isVirtualMode = false
                 showDeviceDialog = false
                 Log.d(TAG, "Connected to device: ${device.name}")
+                
+                // IMPORTANT: Set up MIDI input callback to route events to learning controller
+                // This allows the physical MIDI piano to control the app
+                midiConnectionManager.setInputCallback(object : MidiInputCallback {
+                    override fun onNoteOn(note: Int, velocity: Int, channel: Int) {
+                        Log.d(TAG, "MIDI Note On received from device: note=$note, velocity=$velocity")
+                        learningController.onNoteOn(note, velocity, channel)
+                    }
+                    
+                    override fun onNoteOff(note: Int, velocity: Int, channel: Int) {
+                        Log.d(TAG, "MIDI Note Off received from device: note=$note, velocity=$velocity")
+                        learningController.onNoteOff(note, velocity, channel)
+                    }
+                    
+                    override fun onMidiMessage(message: ByteArray, timestamp: Long) {
+                        learningController.onMidiMessage(message, timestamp)
+                    }
+                })
+                Log.d(TAG, "MIDI input callback set up for connected device")
             }
             
             override fun onDisconnected(device: MidiDeviceWrapper) {
@@ -332,6 +351,22 @@ fun PianoLearningScreenContent(
                 isVirtualMode = true // Enable virtual mode when disconnected
                 learningController.pause()
                 Log.d(TAG, "Disconnected from device: ${device.name} - enabling virtual mode")
+                
+                // Switch back to virtual MIDI input callback when disconnected
+                // Virtual mode will use its own callback
+                midiConnectionManager.setInputCallback(object : MidiInputCallback {
+                    override fun onNoteOn(note: Int, velocity: Int, channel: Int) {
+                        // Virtual mode - no action needed here as VirtualMidiInput handles it
+                    }
+                    
+                    override fun onNoteOff(note: Int, velocity: Int, channel: Int) {
+                        // Virtual mode - no action needed here as VirtualMidiInput handles it
+                    }
+                    
+                    override fun onMidiMessage(message: ByteArray, timestamp: Long) {
+                        // Virtual mode - no action needed here as VirtualMidiInput handles it
+                    }
+                })
             }
             
             override fun onConnectionError(error: String) {
@@ -439,11 +474,12 @@ fun PianoLearningScreenContent(
             previousNote = null
             learningController.reset()
         },
-        onNoteClick = if (isVirtualMode) { note ->
+        onNoteClick = { note ->
+            // Always allow virtual keyboard to work, whether connected or not
             // Send virtual MIDI note when keyboard is tapped
             virtualInput.sendNoteOn(note, 100, 0)
             // Play piano sound
             soundPlayer.playNote(note, 100)
-        } else null
+        }
     )
 }
