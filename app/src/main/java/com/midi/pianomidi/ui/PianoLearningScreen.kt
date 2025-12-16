@@ -35,6 +35,7 @@ fun PianoLearningScreen(
     songNotes: List<Note> = emptyList(),
     completedNotes: Int = 0,
     totalNotes: Int = 42,
+    highlightedNotes: Map<Int, KeyHighlightColor> = emptyMap(),
     onConnectClick: () -> Unit = {},
     onStartClick: () -> Unit = {},
     onPauseClick: () -> Unit = {},
@@ -117,6 +118,7 @@ fun PianoLearningScreen(
         // 5. Visual Piano Keyboard (bottom half, larger)
         PianoKeyboard(
             currentNote = currentNote?.midiNote,
+            highlightedNotes = highlightedNotes,
             onNoteClick = onNoteClick, // Always allow virtual keyboard, even when MIDI device is connected
             modifier = Modifier
                 .constrainAs(keyboardRef) {
@@ -224,21 +226,82 @@ fun ConnectionStatusIndicator(
 }
 
 /**
+ * Enum for key highlight colors
+ */
+enum class KeyHighlightColor {
+    RED, YELLOW, LIGHT_BLUE, NONE
+}
+
+/**
  * Visual piano keyboard showing notes from C4 to C6
- * White keys and black keys are represented as colored rectangles
+ * White keys and black keys are represented as colored rectangles with labels
  * Can be made interactive for virtual MIDI input
+ * Supports multiple highlight colors (red, yellow, light blue)
  */
 @Composable
 fun PianoKeyboard(
     currentNote: Int?,
+    highlightedNotes: Map<Int, KeyHighlightColor> = emptyMap(),
     onNoteClick: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // MIDI notes from C4 (60) to C6 (84) - 3 octaves
     // White keys: C, D, E, F, G, A, B (repeated 3 times)
     val whiteKeys = listOf(60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84)
-    // Black keys: C#, D#, F#, G#, A# (repeated 3 times)
-    val blackKeys = listOf(61, 63, 66, 68, 70, 73, 75, 78, 80, 82)
+    
+    // Helper function to get note label (without octave)
+    fun getNoteLabel(midiNote: Int): String {
+        val note = midiNote % 12
+        return when (note) {
+            0 -> "C"
+            1 -> "Db"
+            2 -> "D"
+            3 -> "Eb"
+            4 -> "E"
+            5 -> "F"
+            6 -> "Gb"
+            7 -> "G"
+            8 -> "Ab"
+            9 -> "A"
+            10 -> "Bb"
+            11 -> "B"
+            else -> ""
+        }
+    }
+    
+    // Helper function to get highlight color
+    fun getKeyColor(note: Int, isBlack: Boolean): Color {
+        val highlightColor = highlightedNotes[note]
+        return when (highlightColor) {
+            KeyHighlightColor.RED -> Color(0xFFF44336) // Red
+            KeyHighlightColor.YELLOW -> Color(0xFFFFEB3B) // Yellow
+            KeyHighlightColor.LIGHT_BLUE -> Color(0xFF81D4FA) // Light Blue
+            KeyHighlightColor.NONE, null -> {
+                if (currentNote == note) {
+                    Color(0xFF2196F3) // Blue for current note
+                } else {
+                    if (isBlack) Color(0xFF212121) else Color.White
+                }
+            }
+        }
+    }
+    
+    // Helper function to get border color
+    fun getBorderColor(note: Int, isBlack: Boolean): Color {
+        val highlightColor = highlightedNotes[note]
+        return when (highlightColor) {
+            KeyHighlightColor.RED -> Color(0xFFD32F2F)
+            KeyHighlightColor.YELLOW -> Color(0xFFFBC02D)
+            KeyHighlightColor.LIGHT_BLUE -> Color(0xFF4FC3F7)
+            KeyHighlightColor.NONE, null -> {
+                if (currentNote == note) {
+                    Color(0xFF1976D2)
+                } else {
+                    if (isBlack) Color.Black else Color(0xFFBDBDBD)
+                }
+            }
+        }
+    }
     
     Box(
         modifier = modifier
@@ -252,18 +315,21 @@ fun PianoKeyboard(
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             whiteKeys.forEachIndexed { index, note ->
-                val isActive = currentNote == note
+                val highlightColor = highlightedNotes[note]
+                val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
+                val isActive = currentNote == note || isHighlighted
+                val keyColor = getKeyColor(note, false)
+                val borderColor = getBorderColor(note, false)
+                
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp))
-                        .background(
-                            if (isActive) Color(0xFF2196F3) else Color.White
-                        )
+                        .background(keyColor)
                         .border(
                             width = if (isActive) 3.dp else 1.dp,
-                            color = if (isActive) Color(0xFF1976D2) else Color(0xFFBDBDBD),
+                            color = borderColor,
                             shape = RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp)
                         )
                         .then(
@@ -272,8 +338,18 @@ fun PianoKeyboard(
                             } else {
                                 Modifier
                             }
-                        )
-                )
+                        ),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    // Show note label at bottom of white key
+                    Text(
+                        text = getNoteLabel(note),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isActive && !isHighlighted) Color.White else Color.Black,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
             }
         }
         
@@ -289,17 +365,22 @@ fun PianoKeyboard(
                 // Pattern: C-C#, D-D#, E-none, F-F#, G-G#, A-A#, B-none
                 val positionInOctave = index % 7
                 val blackNote = when (positionInOctave) {
-                    0 -> whiteNote + 1  // C# after C
-                    1 -> whiteNote + 1  // D# after D
-                    3 -> whiteNote + 1  // F# after F
-                    4 -> whiteNote + 1  // G# after G
-                    5 -> whiteNote + 1  // A# after A
+                    0 -> whiteNote + 1  // C#/Db after C
+                    1 -> whiteNote + 1  // D#/Eb after D
+                    3 -> whiteNote + 1  // F#/Gb after F
+                    4 -> whiteNote + 1  // G#/Ab after G
+                    5 -> whiteNote + 1  // A#/Bb after A
                     else -> null        // No black key after E or B
                 }
                 
                 Box(modifier = Modifier.weight(1f)) {
                     if (blackNote != null && blackNote <= 84) {
-                        val isActive = currentNote == blackNote
+                        val highlightColor = highlightedNotes[blackNote]
+                        val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
+                        val isActive = currentNote == blackNote || isHighlighted
+                        val keyColor = getKeyColor(blackNote, true)
+                        val borderColor = getBorderColor(blackNote, true)
+                        
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.65f)
@@ -307,12 +388,10 @@ fun PianoKeyboard(
                                 .align(Alignment.TopEnd)
                                 .padding(end = 2.dp)
                                 .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
-                                .background(
-                                    if (isActive) Color(0xFF1976D2) else Color(0xFF212121)
-                                )
+                                .background(keyColor)
                                 .border(
                                     width = if (isActive) 2.dp else 1.dp,
-                                    color = if (isActive) Color(0xFF0D47A1) else Color.Black,
+                                    color = borderColor,
                                     shape = RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp)
                                 )
                                 .then(
@@ -321,8 +400,18 @@ fun PianoKeyboard(
                                     } else {
                                         Modifier
                                     }
-                                )
-                        )
+                                ),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            // Show note label at bottom of black key
+                            Text(
+                                text = getNoteLabel(blackNote),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isActive && !isHighlighted) Color.White else Color.White,
+                                modifier = Modifier.padding(bottom = 2.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -105,15 +105,30 @@ class PianoSoundPlayer(private val context: Context) {
                 samples[i] = (amplitude * envelope * Short.MAX_VALUE * (velocity / 127.0)).toInt().toShort()
             }
             
-            // Play using AudioTrack
-            val audioTrack = android.media.AudioTrack(
-                android.media.AudioManager.STREAM_MUSIC,
+            // Play using AudioTrack with modern API
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            
+            val audioFormat = android.media.AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                .build()
+            
+            val bufferSize = android.media.AudioTrack.getMinBufferSize(
                 sampleRate,
                 android.media.AudioFormat.CHANNEL_OUT_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT,
-                numSamples * 2, // 2 bytes per sample
-                android.media.AudioTrack.MODE_STATIC
+                android.media.AudioFormat.ENCODING_PCM_16BIT
             )
+            
+            val audioTrack = android.media.AudioTrack.Builder()
+                .setAudioAttributes(audioAttributes)
+                .setAudioFormat(audioFormat)
+                .setBufferSizeInBytes(maxOf(bufferSize, numSamples * 2))
+                .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                .build()
             
             audioTrack.write(samples, 0, samples.size)
             audioTrack.play()

@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.midi.pianomidi.ui.BluetoothEnableDialog
 import com.midi.pianomidi.ui.DeviceSelectionDialog
 import com.midi.pianomidi.ui.PianoLearningScreen
+import com.midi.pianomidi.ui.KeyHighlightColor
 import com.midi.pianomidi.ui.theme.PianomidiTheme
 
 class MainActivity : ComponentActivity() {
@@ -178,6 +179,7 @@ fun PianoLearningScreenContent(
     var showDeviceDialog by remember { mutableStateOf(false) }
     var showBluetoothDialog by remember { mutableStateOf(false) }
     var availableDevices by remember { mutableStateOf<List<MidiDeviceWrapper>>(emptyList()) }
+    var highlightedNotes by remember { mutableStateOf<Map<Int, KeyHighlightColor>>(emptyMap()) }
     
     // Initialize song and learning controller
     val song = remember { TwinkleTwinkleLittleStar.createSong() }
@@ -211,6 +213,11 @@ fun PianoLearningScreenContent(
                     previousNote = currentNote
                     currentNote = note
                     
+                    // Highlight the suggested note on virtual keyboard with light blue (like in the image)
+                    if (note != null) {
+                        highlightedNotes = highlightedNotes + (note.midiNote to KeyHighlightColor.LIGHT_BLUE)
+                    }
+                    
                     // Highlight the suggested note on RGB piano with blue
                     if (isConnected && note != null) {
                         val rgbController = midiConnectionManager.getRgbController()
@@ -220,8 +227,13 @@ fun PianoLearningScreenContent(
                 
                 override fun onCorrectNotePlayed(note: Note) {
                     Log.d(TAG, "Correct note played: ${note.midiNote}")
-                    // Play piano sound for correct note
-                    soundPlayer.playNote(note.midiNote, 100)
+                    // Play piano sound for correct note (already played in MIDI callback)
+                    // Highlight key with yellow on virtual keyboard (like in the image)
+                    highlightedNotes = highlightedNotes + (note.midiNote to KeyHighlightColor.YELLOW)
+                    // Clear highlight after a short delay
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        highlightedNotes = highlightedNotes - note.midiNote
+                    }, 500)
                     // Highlight key with green on RGB piano
                     if (isConnected) {
                         val rgbController = midiConnectionManager.getRgbController()
@@ -232,6 +244,12 @@ fun PianoLearningScreenContent(
                 
                 override fun onIncorrectNotePlayed(playedNote: Int, expectedNote: Int) {
                     Log.d(TAG, "Incorrect note: played $playedNote, expected $expectedNote")
+                    // Highlight incorrect key with red on virtual keyboard
+                    highlightedNotes = highlightedNotes + (playedNote to KeyHighlightColor.RED)
+                    // Clear highlight after a short delay
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        highlightedNotes = highlightedNotes - playedNote
+                    }, 500)
                     // Highlight incorrect key with red on RGB piano
                     if (isConnected) {
                         val rgbController = midiConnectionManager.getRgbController()
@@ -331,6 +349,15 @@ fun PianoLearningScreenContent(
                 midiConnectionManager.setInputCallback(object : MidiInputCallback {
                     override fun onNoteOn(note: Int, velocity: Int, channel: Int) {
                         Log.d(TAG, "MIDI Note On received from device: note=$note, velocity=$velocity")
+                        // Play sound immediately when MIDI note is received
+                        soundPlayer.playNote(note, velocity)
+                        // Highlight the pressed key with yellow on virtual keyboard
+                        highlightedNotes = highlightedNotes + (note to KeyHighlightColor.YELLOW)
+                        // Clear highlight after a short delay
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            highlightedNotes = highlightedNotes - note
+                        }, 300)
+                        // Also route to learning controller for learning mode
                         learningController.onNoteOn(note, velocity, channel)
                     }
                     
@@ -429,6 +456,7 @@ fun PianoLearningScreenContent(
         songNotes = song.notes,
         completedNotes = completedNotes,
         totalNotes = totalNotes,
+        highlightedNotes = highlightedNotes,
         isPlaying = isPlaying,
         onConnectClick = {
             if (isConnected) {
@@ -471,11 +499,19 @@ fun PianoLearningScreenContent(
                 val rgbController = midiConnectionManager.getRgbController()
                 rgbController?.turnOffAll()
             }
+            // Clear all highlighted notes
+            highlightedNotes = emptyMap()
             previousNote = null
             learningController.reset()
         },
         onNoteClick = { note ->
             // Always allow virtual keyboard to work, whether connected or not
+            // Highlight the pressed key with yellow on virtual keyboard
+            highlightedNotes = highlightedNotes + (note to KeyHighlightColor.YELLOW)
+            // Clear highlight after a short delay
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                highlightedNotes = highlightedNotes - note
+            }, 300)
             // Send virtual MIDI note when keyboard is tapped
             virtualInput.sendNoteOn(note, 100, 0)
             // Play piano sound
