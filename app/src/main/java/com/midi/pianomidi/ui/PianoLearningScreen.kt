@@ -1,5 +1,6 @@
 package com.midi.pianomidi.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -46,12 +52,12 @@ fun PianoLearningScreen(
     ConstraintLayout(
         modifier = Modifier
             .fillMaxSize()
-            .padding(8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         // Create references for constraint layout
         val (titleRef, connectButtonRef, statusRef, staffRef, keyboardRef, controlsRef, progressRef) = createRefs()
         
-        // 1. Song Title at top (smaller, compact)
+        // 1. Song Title at top (with proper padding)
         Text(
             text = songTitle,
             style = MaterialTheme.typography.titleLarge,
@@ -59,44 +65,49 @@ fun PianoLearningScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .constrainAs(titleRef) {
-                    top.linkTo(parent.top, margin = 8.dp)
-                    start.linkTo(parent.start)
-                    end.linkTo(parent.end)
+                    top.linkTo(parent.top, margin = 16.dp)
+                    start.linkTo(parent.start, margin = 16.dp)
+                    end.linkTo(parent.end, margin = 16.dp)
                 }
                 .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp)
         )
         
-        // 2. Connect MIDI Piano Button
+        // 2. Connect MIDI Piano Button (with proper padding)
         Button(
             onClick = onConnectClick,
             modifier = Modifier
                 .constrainAs(connectButtonRef) {
-                    top.linkTo(titleRef.bottom, margin = 8.dp)
-                    start.linkTo(parent.start)
-                    end.linkTo(parent.end)
+                    top.linkTo(titleRef.bottom, margin = 12.dp)
+                    start.linkTo(parent.start, margin = 16.dp)
+                    end.linkTo(parent.end, margin = 16.dp)
                 }
-                .fillMaxWidth(0.5f),
+                .fillMaxWidth(0.5f)
+                .padding(horizontal = 8.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isConnected) MaterialTheme.colorScheme.secondary 
                                 else MaterialTheme.colorScheme.primary
-            )
+            ),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Text(
                 text = if (isConnected) "Disconnect MIDI" else "Connect MIDI Piano",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 4.dp)
             )
         }
         
-        // 3. Connection Status Indicator (compact)
+        // 3. Connection Status Indicator (with proper padding)
         ConnectionStatusIndicator(
             isConnected = isConnected,
             isVirtualMode = isVirtualMode,
             modifier = Modifier
                 .constrainAs(statusRef) {
-                    top.linkTo(connectButtonRef.bottom, margin = 4.dp)
-                    start.linkTo(parent.start)
-                    end.linkTo(parent.end)
+                    top.linkTo(connectButtonRef.bottom, margin = 12.dp)
+                    start.linkTo(parent.start, margin = 16.dp)
+                    end.linkTo(parent.end, margin = 16.dp)
                 }
+                .padding(horizontal = 8.dp, vertical = 4.dp)
         )
         
         // 4. Musical Staff (top half of screen)
@@ -233,37 +244,81 @@ enum class KeyHighlightColor {
 }
 
 /**
- * Visual piano keyboard showing notes from C4 to C6
- * White keys and black keys are represented as colored rectangles with labels
+ * Visual piano keyboard matching the image design
+ * Features: 14 white keys, 10 black keys, black rounded frame, glossy white keys
  * Can be made interactive for virtual MIDI input
- * Supports multiple highlight colors (red, yellow, light blue)
+ * Supports multiple highlight colors (red, yellow, light blue, green, orange)
+ * 
+ * @param octaveStart MIDI note number for the starting C note (e.g., 24 for C1, 48 for C3)
+ *                    The keyboard will display 2 octaves starting from this note
  */
 @Composable
 fun PianoKeyboard(
     currentNote: Int?,
     highlightedNotes: Map<Int, KeyHighlightColor> = emptyMap(),
     onNoteClick: ((Int) -> Unit)? = null,
+    octaveStart: Int = 48, // Default to C3 (48)
     modifier: Modifier = Modifier
 ) {
-    // MIDI notes from C4 (60) to C6 (84) - 3 octaves
-    // White keys: C, D, E, F, G, A, B (repeated 3 times)
-    val whiteKeys = listOf(60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84)
+    // Calculate white keys for 2 octaves starting from octaveStart
+    // White keys pattern: C, D, E, F, G, A, B (repeated 2 times)
+    val whiteKeys = remember(octaveStart) {
+        val firstOctave = listOf(
+            octaveStart,      // C
+            octaveStart + 2,  // D
+            octaveStart + 4,  // E
+            octaveStart + 5,  // F
+            octaveStart + 7,  // G
+            octaveStart + 9,  // A
+            octaveStart + 11  // B
+        )
+        val secondOctave = listOf(
+            octaveStart + 12, // C
+            octaveStart + 14, // D
+            octaveStart + 16, // E
+            octaveStart + 17, // F
+            octaveStart + 19, // G
+            octaveStart + 21, // A
+            octaveStart + 23  // B
+        )
+        firstOctave + secondOctave
+    }
+    
+    // Calculate black keys for 2 octaves
+    // Black keys pattern: C#, D#, F#, G#, A# (repeated 2 times, no black keys after E and B)
+    val blackKeys = remember(octaveStart) {
+        val firstOctave = listOf(
+            octaveStart + 1,  // C#
+            octaveStart + 3,  // D#
+            octaveStart + 6,  // F#
+            octaveStart + 8,  // G#
+            octaveStart + 10  // A#
+        )
+        val secondOctave = listOf(
+            octaveStart + 13, // C#
+            octaveStart + 15, // D#
+            octaveStart + 18, // F#
+            octaveStart + 20, // G#
+            octaveStart + 22  // A#
+        )
+        firstOctave + secondOctave
+    }
     
     // Helper function to get note label (without octave)
     fun getNoteLabel(midiNote: Int): String {
         val note = midiNote % 12
         return when (note) {
             0 -> "C"
-            1 -> "Db"
+            1 -> "C#"
             2 -> "D"
-            3 -> "Eb"
+            3 -> "D#"
             4 -> "E"
             5 -> "F"
-            6 -> "Gb"
+            6 -> "F#"
             7 -> "G"
-            8 -> "Ab"
+            8 -> "G#"
             9 -> "A"
-            10 -> "Bb"
+            10 -> "A#"
             11 -> "B"
             else -> ""
         }
@@ -278,146 +333,249 @@ fun PianoKeyboard(
             KeyHighlightColor.LIGHT_BLUE -> Color(0xFF81D4FA) // Light Blue
             KeyHighlightColor.NONE, null -> {
                 if (currentNote == note) {
-                    Color(0xFF2196F3) // Blue for current note
+                    Color(0xFF4CAF50) // Green for current note (matching image)
                 } else {
-                    if (isBlack) Color(0xFF212121) else Color.White
+                    if (isBlack) Color(0xFF1A1A1A) else Color(0xFFFFFEFE)
                 }
             }
         }
     }
     
-    // Helper function to get border color
-    fun getBorderColor(note: Int, isBlack: Boolean): Color {
+    // Helper function to check if key is highlighted (for orange/green highlights)
+    fun isKeyHighlighted(note: Int): Boolean {
         val highlightColor = highlightedNotes[note]
-        return when (highlightColor) {
-            KeyHighlightColor.RED -> Color(0xFFD32F2F)
-            KeyHighlightColor.YELLOW -> Color(0xFFFBC02D)
-            KeyHighlightColor.LIGHT_BLUE -> Color(0xFF4FC3F7)
-            KeyHighlightColor.NONE, null -> {
-                if (currentNote == note) {
-                    Color(0xFF1976D2)
-                } else {
-                    if (isBlack) Color.Black else Color(0xFFBDBDBD)
-                }
-            }
-        }
+        return highlightColor != null && highlightColor != KeyHighlightColor.NONE
     }
     
+    // Black frame with rounded corners (no outer gray border)
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFFE0E0E0))
-            .padding(4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black)
+            .padding(2.dp)
     ) {
-        // White keys layer
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            whiteKeys.forEachIndexed { index, note ->
-                val highlightColor = highlightedNotes[note]
-                val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
-                val isActive = currentNote == note || isHighlighted
-                val keyColor = getKeyColor(note, false)
-                val borderColor = getBorderColor(note, false)
-                
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp))
-                        .background(keyColor)
-                        .border(
-                            width = if (isActive) 3.dp else 1.dp,
-                            color = borderColor,
-                            shape = RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp)
-                        )
-                        .then(
-                            if (onNoteClick != null) {
-                                Modifier.clickable { onNoteClick(note) }
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    contentAlignment = Alignment.BottomCenter
-                ) {
-                    // Show note label at bottom of white key
-                    Text(
-                        text = getNoteLabel(note),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isActive && !isHighlighted) Color.White else Color.Black,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                }
-            }
-        }
-        
-        // Black keys layer (positioned absolutely over white keys)
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 0.dp, end = 0.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                .background(Color.Black)
         ) {
-            whiteKeys.forEachIndexed { index, whiteNote ->
-                // Determine if there's a black key after this white key
-                // Pattern: C-C#, D-D#, E-none, F-F#, G-G#, A-A#, B-none
-                val positionInOctave = index % 7
-                val blackNote = when (positionInOctave) {
-                    0 -> whiteNote + 1  // C#/Db after C
-                    1 -> whiteNote + 1  // D#/Eb after D
-                    3 -> whiteNote + 1  // F#/Gb after F
-                    4 -> whiteNote + 1  // G#/Ab after G
-                    5 -> whiteNote + 1  // A#/Bb after A
-                    else -> null        // No black key after E or B
-                }
-                
-                Box(modifier = Modifier.weight(1f)) {
-                    if (blackNote != null && blackNote <= 84) {
-                        val highlightColor = highlightedNotes[blackNote]
+                // White keys layer
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    whiteKeys.forEachIndexed { index, note ->
+                        val highlightColor = highlightedNotes[note]
                         val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
-                        val isActive = currentNote == blackNote || isHighlighted
-                        val keyColor = getKeyColor(blackNote, true)
-                        val borderColor = getBorderColor(blackNote, true)
+                        val isActive = currentNote == note || isHighlighted
+                        val keyColor = getKeyColor(note, false)
+                        
+                        // Determine highlight overlay color
+                        val overlayColor = when {
+                            currentNote == note -> Color(0xFF4CAF50).copy(alpha = 0.9f) // Green
+                            highlightColor == KeyHighlightColor.YELLOW -> Color(0xFFFFA500).copy(alpha = 0.7f) // Orange
+                            else -> null
+                        }
                         
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(0.65f)
-                                .fillMaxHeight(0.65f)
-                                .align(Alignment.TopEnd)
-                                .padding(end = 2.dp)
-                                .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
-                                .background(keyColor)
-                                .border(
-                                    width = if (isActive) 2.dp else 1.dp,
-                                    color = borderColor,
-                                    shape = RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp)
-                                )
+                                .weight(1f)
+                                .fillMaxHeight()
                                 .then(
                                     if (onNoteClick != null) {
-                                        Modifier.clickable { onNoteClick(blackNote) }
+                                        Modifier.clickable { onNoteClick(note) }
                                     } else {
                                         Modifier
                                     }
-                                ),
-                            contentAlignment = Alignment.BottomCenter
+                                )
                         ) {
-                            // Show note label at bottom of black key
-                            Text(
-                                text = getNoteLabel(blackNote),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isActive && !isHighlighted) Color.White else Color.White,
-                                modifier = Modifier.padding(bottom = 2.dp)
-                            )
+                            // White key with rounded bottom edges and glossy effect
+                            Canvas(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                val keyWidth = size.width
+                                val keyHeight = size.height
+                                val cornerRadius = 8.dp.toPx()
+                                
+                                // Create rounded rectangle path for white key
+                                val path = Path().apply {
+                                    moveTo(0f, 0f)
+                                    lineTo(keyWidth, 0f)
+                                    lineTo(keyWidth, keyHeight - cornerRadius)
+                                    arcTo(
+                                        rect = androidx.compose.ui.geometry.Rect(
+                                            offset = Offset(keyWidth - cornerRadius * 2, keyHeight - cornerRadius * 2),
+                                            size = Size(cornerRadius * 2, cornerRadius * 2)
+                                        ),
+                                        startAngleDegrees = 0f,
+                                        sweepAngleDegrees = 90f,
+                                        forceMoveTo = false
+                                    )
+                                    lineTo(cornerRadius, keyHeight)
+                                    arcTo(
+                                        rect = androidx.compose.ui.geometry.Rect(
+                                            offset = Offset(0f, keyHeight - cornerRadius * 2),
+                                            size = Size(cornerRadius * 2, cornerRadius * 2)
+                                        ),
+                                        startAngleDegrees = 90f,
+                                        sweepAngleDegrees = 90f,
+                                        forceMoveTo = false
+                                    )
+                                    close()
+                                }
+                                
+                                // Draw white key with gradient for glossy effect
+                                drawPath(
+                                    path = path,
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White,
+                                            Color(0xFFF5F5F5),
+                                            Color(0xFFE8E8E8)
+                                        )
+                                    )
+                                )
+                                
+                                // Draw highlight overlay if active
+                                overlayColor?.let { color ->
+                                    drawPath(
+                                        path = path,
+                                        color = color
+                                    )
+                                }
+                                
+                                // Draw subtle border
+                                drawPath(
+                                    path = path,
+                                    color = Color(0xFFCCCCCC),
+                                    style = Stroke(width = 1.dp.toPx())
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                // Black keys layer (positioned absolutely over white keys)
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val totalWidth = maxWidth
+                    val totalHeight = maxHeight
+                    
+                    // Calculate positions for black keys relative to white keys
+                    // Pattern: C-C#, D-D#, E-none, F-F#, G-G#, A-A#, B-none (repeats for 2 octaves)
+                    val whiteKeyWidth = totalWidth / whiteKeys.size
+                    // First octave: positions after C(0), D(1), F(3), G(4), A(5)
+                    // Second octave: positions after C(7), D(8), F(10), G(11), A(12)
+                    val blackKeyPositions = listOf(
+                        whiteKeyWidth * 0.65f,  // C# after 1st C (index 0)
+                        whiteKeyWidth * 1.65f,  // D# after 1st D (index 1)
+                        whiteKeyWidth * 3.65f,  // F# after 1st F (index 3)
+                        whiteKeyWidth * 4.65f,  // G# after 1st G (index 4)
+                        whiteKeyWidth * 5.65f,  // A# after 1st A (index 5)
+                        // Second octave positions
+                        whiteKeyWidth * 7.65f,  // C# after 2nd C (index 7)
+                        whiteKeyWidth * 8.65f,  // D# after 2nd D (index 8)
+                        whiteKeyWidth * 10.65f, // F# after 2nd F (index 10)
+                        whiteKeyWidth * 11.65f, // G# after 2nd G (index 11)
+                        whiteKeyWidth * 12.65f  // A# after 2nd A (index 12)
+                    )
+                    
+                    blackKeys.forEachIndexed { index, note ->
+                        val highlightColor = highlightedNotes[note]
+                        val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
+                        val isActive = currentNote == note || isHighlighted
+                        
+                        // Determine highlight overlay color
+                        val overlayColor = when {
+                            currentNote == note -> Color(0xFF4CAF50).copy(alpha = 0.9f) // Green
+                            highlightColor == KeyHighlightColor.YELLOW -> Color(0xFFFFA500).copy(alpha = 0.7f) // Orange
+                            else -> null
+                        }
+                        
+                        val blackKeyWidth = whiteKeyWidth * 0.65f // Narrower than white keys
+                        val blackKeyHeight = totalHeight * 0.65f // Shorter than white keys
+                        
+                        Box(
+                            modifier = Modifier
+                                .width(blackKeyWidth)
+                                .height(blackKeyHeight)
+                                .offset(x = blackKeyPositions[index], y = 0.dp)
+                                .then(
+                                    if (onNoteClick != null) {
+                                        Modifier.clickable { onNoteClick(note) }
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
+                            // Black key with rounded bottom edges
+                            Canvas(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                val keyWidth = size.width
+                                val keyHeight = size.height
+                                val cornerRadius = 4.dp.toPx()
+                                
+                                // Create rounded rectangle path for black key
+                                val path = Path().apply {
+                                    moveTo(0f, 0f)
+                                    lineTo(keyWidth, 0f)
+                                    lineTo(keyWidth, keyHeight - cornerRadius)
+                                    arcTo(
+                                        rect = androidx.compose.ui.geometry.Rect(
+                                            offset = Offset(keyWidth - cornerRadius * 2, keyHeight - cornerRadius * 2),
+                                            size = Size(cornerRadius * 2, cornerRadius * 2)
+                                        ),
+                                        startAngleDegrees = 0f,
+                                        sweepAngleDegrees = 90f,
+                                        forceMoveTo = false
+                                    )
+                                    lineTo(cornerRadius, keyHeight)
+                                    arcTo(
+                                        rect = androidx.compose.ui.geometry.Rect(
+                                            offset = Offset(0f, keyHeight - cornerRadius * 2),
+                                            size = Size(cornerRadius * 2, cornerRadius * 2)
+                                        ),
+                                        startAngleDegrees = 90f,
+                                        sweepAngleDegrees = 90f,
+                                        forceMoveTo = false
+                                    )
+                                    close()
+                                }
+                                
+                                // Draw black key with subtle gradient
+                                drawPath(
+                                    path = path,
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF1A1A1A),
+                                            Color(0xFF0F0F0F),
+                                            Color(0xFF000000)
+                                        )
+                                    )
+                                )
+                                
+                                // Draw highlight overlay if active
+                                overlayColor?.let { color ->
+                                    drawPath(
+                                        path = path,
+                                        color = color
+                                    )
+                                }
+                                
+                                // Draw subtle border
+                                drawPath(
+                                    path = path,
+                                    color = Color(0xFF000000),
+                                    style = Stroke(width = 0.5.dp.toPx())
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
+
 
 /**
  * Large display showing the current note to play

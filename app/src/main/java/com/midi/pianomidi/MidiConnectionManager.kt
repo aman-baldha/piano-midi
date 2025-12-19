@@ -654,6 +654,20 @@ class MidiConnectionManager private constructor(
     }
     
     /**
+     * Get the active MIDI device (for sending MIDI messages)
+     */
+    fun getActiveMidiDevice(): MidiDevice? {
+        return activeDevice
+    }
+    
+    /**
+     * Get the BluetoothDevice if connected via BLE
+     */
+    fun getBluetoothDevice(): BluetoothDevice? {
+        return activeWrapper?.bluetoothDevice
+    }
+    
+    /**
      * Check if required permissions are granted
      */
     private fun hasPermissions(): Boolean {
