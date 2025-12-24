@@ -46,6 +46,23 @@ class MidiRgbController(private val midiDevice: MidiDevice) {
     }
     
     /**
+     * Highlight a key with a specific color
+     */
+    fun highlightNote(midiNote: Int, color: androidx.compose.ui.graphics.Color) {
+        val red = (color.red * 127).toInt()
+        val green = (color.green * 127).toInt()
+        val blue = (color.blue * 127).toInt()
+        setKeyColor(midiNote, red, green, blue, 100)
+    }
+
+    /**
+     * Clear highlight from a note
+     */
+    fun clearNote(midiNote: Int) {
+        turnOffKey(midiNote)
+    }
+
+    /**
      * Highlight a key with blue color (suggested note)
      */
     fun highlightKeyBlue(midiNote: Int) {

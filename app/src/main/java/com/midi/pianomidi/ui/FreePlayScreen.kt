@@ -29,10 +29,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.midi.pianomidi.MidiConnectionManager
 import com.midi.pianomidi.MidiInputCallback
+import com.midi.pianomidi.Note
+import com.midi.pianomidi.NoteVisualizerState
+import com.midi.pianomidi.KeyHighlightColor
 import com.midi.pianomidi.PianoNoteHandler
 import com.midi.pianomidi.PianoSoundPlayer
 import com.midi.pianomidi.SuperrServiceManager
 import com.midi.pianomidi.ui.theme.*
+import com.midi.pianomidi.ui.PianoKeyboard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
@@ -172,13 +176,6 @@ fun FreePlayScreen(
                 // Update current note for keyboard display
                 currentNote = note
                 
-                // Add to active notes for visualizer
-                activeNotes = activeNotes + (note to NoteVisualizerState(
-                    note = note,
-                    velocity = velocity,
-                    startTime = System.currentTimeMillis()
-                ))
-                
                 // Create upward flowing particles for this note
                 val colors = listOf(
                     Color(0xFFFF6B35), // Orange
@@ -186,6 +183,14 @@ fun FreePlayScreen(
                     NeonGreen          // Green
                 )
                 val noteColor = colors[note % colors.size]
+                
+                // Add to active notes for visualizer with color
+                activeNotes = activeNotes + (note to NoteVisualizerState(
+                    note = note,
+                    velocity = velocity,
+                    startTime = System.currentTimeMillis(),
+                    color = noteColor
+                ))
                 
                 // Create multiple particles flowing upward from bottom of screen
                 val barWidth = screenWidthPx / 25f
@@ -215,8 +220,11 @@ fun FreePlayScreen(
                     currentNote = null
                 }
                 
-                // Remove from active notes
-                activeNotes = activeNotes - note
+                // Remove from active notes after a longer delay to allow for slower rising animation
+                coroutineScope.launch {
+                    delay(4000) // 4 seconds to rise and fade
+                    activeNotes = activeNotes - note
+                }
             }
             
             override fun onMidiMessage(message: ByteArray, timestamp: Long) {
@@ -325,6 +333,7 @@ fun FreePlayScreen(
                 NoteVisualizer(
                     activeNotes = activeNotes,
                     currentTime = currentTime,
+                    octaveStart = currentOctaveStart,
                     modifier = Modifier.fillMaxSize()
                 )
                 
@@ -360,13 +369,6 @@ fun FreePlayScreen(
                     // Process through note handler
                     noteHandler.onNoteOn(note, velocity, 0)
                     
-                    // Add to active notes for visualizer
-                    activeNotes = activeNotes + (note to NoteVisualizerState(
-                        note = note,
-                        velocity = velocity,
-                        startTime = System.currentTimeMillis()
-                    ))
-                    
                     // Create upward flowing particles for this note
                     val colors = listOf(
                         Color(0xFFFF6B35), // Orange
@@ -374,6 +376,14 @@ fun FreePlayScreen(
                         NeonGreen          // Green
                     )
                     val noteColor = colors[note % colors.size]
+
+                    // Add to active notes for visualizer with color
+                    activeNotes = activeNotes + (note to NoteVisualizerState(
+                        note = note,
+                        velocity = velocity,
+                        startTime = System.currentTimeMillis(),
+                        color = noteColor
+                    ))
                     
                     // Create multiple particles flowing upward from bottom of screen
                     val barWidth = screenWidthPx / 25f
@@ -400,6 +410,11 @@ fun FreePlayScreen(
                         if (currentNote == note) {
                             currentNote = null
                         }
+                    }
+                    
+                    // Remove from visualizer after a longer delay
+                    coroutineScope.launch {
+                        delay(4000) // 4 seconds to rise and fade
                         activeNotes = activeNotes - note
                     }
                 },
@@ -428,24 +443,8 @@ fun FreePlayScreen(
 /**
  * Data class for note visualizer state
  */
-data class NoteVisualizerState(
-    val note: Int,
-    val velocity: Int,
-    val startTime: Long
-)
+// NoteVisualizerState removed - now using shared model from MidiModels.kt
 
-/**
- * Data class for color flow particles
- */
-data class ColorParticle(
-    val x: Float,
-    var y: Float,
-    val color: Color,
-    val velocity: Float,
-    val size: Float,
-    var alpha: Float,
-    val startTime: Long
-)
 
 /**
  * Top bar with back button, title, connection status, octave controls, and settings
@@ -607,46 +606,6 @@ fun FreePlayTopBar(
     }
 }
 
-/**
- * Color flow particles animation - upward flowing colors when notes are played
- */
-@Composable
-fun ColorFlowParticles(
-    particles: List<ColorParticle>,
-    currentTime: Long,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        particles.forEach { particle ->
-            val elapsed = currentTime - particle.startTime
-            if (elapsed >= 0) {
-                // Draw particle with glow effect
-                val particleColor = particle.color.copy(alpha = particle.alpha)
-                
-                // Outer glow
-                drawCircle(
-                    color = particle.color.copy(alpha = particle.alpha * 0.3f),
-                    radius = particle.size * 1.5f,
-                    center = Offset(particle.x, particle.y)
-                )
-                
-                // Main particle
-                drawCircle(
-                    color = particleColor,
-                    radius = particle.size,
-                    center = Offset(particle.x, particle.y)
-                )
-                
-                // Inner bright core
-                drawCircle(
-                    color = particle.color.copy(alpha = particle.alpha * 1.5f.coerceAtMost(1f)),
-                    radius = particle.size * 0.5f,
-                    center = Offset(particle.x, particle.y)
-                )
-            }
-        }
-    }
-}
 
 /**
  * Visualizer showing glowing bars for active notes
@@ -656,91 +615,89 @@ fun ColorFlowParticles(
 fun NoteVisualizer(
     activeNotes: Map<Int, NoteVisualizerState>,
     currentTime: Long,
+    octaveStart: Int = 48,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
-        val barWidth = size.width / 25 // 25 bars across the screen
-        val maxHeight = size.height * 0.8f
+        val totalWhiteKeys = 14 // 2 octaves
+        val barWidth = size.width / totalWhiteKeys
         
         // Draw vertical bars for each active note
         activeNotes.values.forEach { state ->
             val note = state.note
             val velocity = state.velocity
             val elapsed = currentTime - state.startTime
-            val fadeProgress = (elapsed / 800f).coerceIn(0f, 1f) // Fade over 800ms
             
-            // Map note to bar position (distribute across screen based on note value)
-            val barIndex = (note % 25)
-            val x = barIndex * barWidth + barWidth / 2
+            // Rising logic: move upward over time
+            // Speed slowed down significantly for smooth animation
+            val speed = 0.15f + (velocity / 127f) * 0.25f
+            val yOffset = (elapsed * speed) // Removed modulo (%) to prevent repetition
+            val currentY = size.height - yOffset
             
-            // Calculate bar height based on velocity and fade
-            val baseHeight = maxHeight * (velocity / 127f) * 0.6f // Start at 60% of max
-            val height = (baseHeight * (1f - fadeProgress * 0.5f)).coerceAtLeast(20f) // Slower fade
+            // Map note to its horizontal position above the corresponding piano key
+            // totalWhiteKeys = 14 (2 octaves)
+            val whiteKeyWidth = size.width / 14
+            val octaveNote = note % 12
+            val relativeNote = note - octaveStart
+            val octaveIndex = relativeNote / 12
             
-            // Color based on note (matching image colors: orange, yellow, green)
-            val colors = listOf(
-                Color(0xFFFF6B35), // Orange
-                Color(0xFFFFEB3B), // Yellow
-                NeonGreen          // Green
+            val x = when (octaveNote) {
+                0 -> (octaveIndex * 7 + 0.5f) * whiteKeyWidth // C
+                2 -> (octaveIndex * 7 + 1.5f) * whiteKeyWidth // D
+                4 -> (octaveIndex * 7 + 2.5f) * whiteKeyWidth // E
+                5 -> (octaveIndex * 7 + 3.5f) * whiteKeyWidth // F
+                7 -> (octaveIndex * 7 + 4.5f) * whiteKeyWidth // G
+                9 -> (octaveIndex * 7 + 5.5f) * whiteKeyWidth // A
+                11 -> (octaveIndex * 7 + 6.5f) * whiteKeyWidth // B
+                // Black keys
+                1 -> (octaveIndex * 7 + 1.0f) * whiteKeyWidth // C#
+                3 -> (octaveIndex * 7 + 2.0f) * whiteKeyWidth // D#
+                6 -> (octaveIndex * 7 + 4.0f) * whiteKeyWidth // F#
+                8 -> (octaveIndex * 7 + 5.0f) * whiteKeyWidth // G#
+                10 -> (octaveIndex * 7 + 6.0f) * whiteKeyWidth // A#
+                else -> (octaveIndex * 7 + 0.5f) * whiteKeyWidth
+            }
+            
+            // Calculate bar dimensions - "pill" shape
+            val pillWidth = barWidth * 0.5f
+            val pillHeight = (40.dp.toPx() + (velocity / 127f) * 60.dp.toPx()).coerceAtLeast(40.dp.toPx())
+            
+            // Aurora / Breathing effect
+            val breatheCycle = (elapsed / 1000f) * Math.PI * 2
+            val breatheAlpha = 0.7f + (Math.sin(breatheCycle).toFloat() * 0.2f)
+            val fadeOut = (1f - (yOffset / size.height)).coerceIn(0f, 1f)
+            val finalAlpha = breatheAlpha * fadeOut
+            
+            val baseColor = state.color
+            
+            // Draw glowing pill
+            // Outer glow
+            drawRoundRect(
+                color = baseColor.copy(alpha = finalAlpha * 0.3f),
+                topLeft = Offset(x - pillWidth / 2 - 8.dp.toPx(), currentY - pillHeight / 2 - 8.dp.toPx()),
+                size = Size(pillWidth + 16.dp.toPx(), pillHeight + 16.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(pillWidth, pillWidth)
             )
-            val baseColor = colors[note % colors.size]
-            val alpha = (1f - fadeProgress * 0.6f).coerceIn(0.4f, 1f)
-            val color = baseColor.copy(alpha = alpha)
             
-            // Draw glowing bar with gradient effect
-            // Main bar
-            drawRect(
-                color = color,
-                topLeft = Offset(x - barWidth / 2, size.height - height),
-                size = Size(barWidth * 0.7f, height)
+            // Main pill
+            drawRoundRect(
+                color = baseColor.copy(alpha = finalAlpha),
+                topLeft = Offset(x - pillWidth / 2, currentY - pillHeight / 2),
+                size = Size(pillWidth, pillHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(pillWidth, pillWidth)
             )
             
-            // Glow effect (lighter outer bar)
-            drawRect(
-                color = baseColor.copy(alpha = alpha * 0.3f),
-                topLeft = Offset(x - barWidth / 2 - 2.dp.toPx(), size.height - height - 2.dp.toPx()),
-                size = Size(barWidth * 0.7f + 4.dp.toPx(), height + 4.dp.toPx())
+            // Inner bright core
+            drawRoundRect(
+                color = Color.White.copy(alpha = finalAlpha * 0.5f),
+                topLeft = Offset(x - pillWidth * 0.2f, currentY - pillHeight * 0.3f),
+                size = Size(pillWidth * 0.4f, pillHeight * 0.6f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(pillWidth * 0.4f, pillWidth * 0.4f)
             )
         }
     }
 }
 
-/**
- * Grid background pattern
- */
-@Composable
-fun GridBackgroundPattern(
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier.fillMaxSize()) {
-        val gridSize = 40.dp.toPx()
-        val gridColor = Color(0xFF1A2A1A) // Dark green grid (subtle green tint)
-        
-        // Draw vertical lines
-        var x = 0f
-        while (x < size.width) {
-            drawLine(
-                color = gridColor,
-                start = Offset(x, 0f),
-                end = Offset(x, size.height),
-                strokeWidth = 1f
-            )
-            x += gridSize
-        }
-        
-        // Draw horizontal lines
-        var y = 0f
-        while (y < size.height) {
-            drawLine(
-                color = gridColor,
-                start = Offset(0f, y),
-                end = Offset(size.width, y),
-                strokeWidth = 1f
-            )
-            y += gridSize
-        }
-    }
-}
 
 
 /**

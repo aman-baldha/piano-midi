@@ -1,5 +1,11 @@
 package com.midi.pianomidi.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +34,16 @@ import androidx.compose.ui.unit.sp
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.constraintlayout.compose.Dimension
 import com.midi.pianomidi.Note
+import com.midi.pianomidi.NoteVisualizerState
+import com.midi.pianomidi.KeyHighlightColor
+import com.midi.pianomidi.ui.theme.NeonGreen
+import com.midi.pianomidi.ui.theme.DarkBackground
+import com.midi.pianomidi.ui.theme.DarkSurface
+import com.midi.pianomidi.ui.theme.TextPrimary
+import com.midi.pianomidi.ui.theme.TextSecondary
+import com.midi.pianomidi.ui.theme.TextTertiary
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Main piano learning screen with all UI components
@@ -47,15 +63,74 @@ fun PianoLearningScreen(
     onPauseClick: () -> Unit = {},
     onResetClick: () -> Unit = {},
     onNoteClick: ((Int) -> Unit)? = null,
-    isPlaying: Boolean = false
+    isPlaying: Boolean = false,
+    onNavigateBack: () -> Unit = {},
+    onSettingsClick: () -> Unit = {}
 ) {
-    ConstraintLayout(
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val horizontalPadding = 24.dp
+    val coroutineScope = rememberCoroutineScope()
+    var currentTime by remember { mutableStateOf(0L) }
+    var waterfallNotes by remember { mutableStateOf<Map<Int, NoteVisualizerState>>(emptyMap()) }
+    var currentOctaveStart by remember { mutableStateOf(48) } // Default C3
+    
+    // MIDI Output Handler
+    val midiConnectionManager = com.midi.pianomidi.MidiConnectionManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
+    val rgbController = midiConnectionManager.getRgbController()
+
+    // Update time for animations
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            val baseTime = System.currentTimeMillis() - currentTime
+            while (isPlaying) {
+                currentTime = System.currentTimeMillis() - baseTime
+                delay(16)
+            }
+        }
+    }
+
+    // Handle waterfall notes and MIDI highlighting
+    LaunchedEffect(currentNote) {
+        currentNote?.let { note ->
+            // 1. Update visual waterfall
+            val color = when ((note.midiNote) % 3) {
+                0 -> Color(0xFFFF6B35) // Orange
+                1 -> Color(0xFFFFEB3B) // Yellow
+                else -> NeonGreen
+            }
+            waterfallNotes = waterfallNotes + (note.midiNote to NoteVisualizerState(
+                note = note.midiNote,
+                velocity = 100,
+                startTime = System.currentTimeMillis(),
+                color = color
+            ))
+            
+            // 2. Highlight physical MIDI key
+            rgbController?.highlightNote(note.midiNote, color)
+            
+            // Auto-remove after some time
+            coroutineScope.launch {
+                delay(note.duration + 500) // Keep highlighted for note duration
+                waterfallNotes = waterfallNotes - note.midiNote
+                rgbController?.clearNote(note.midiNote)
+            }
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .background(DarkBackground)
     ) {
-        // Create references for constraint layout
-        val (titleRef, connectButtonRef, statusRef, staffRef, keyboardRef, controlsRef, progressRef) = createRefs()
+
+        ConstraintLayout(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .padding(horizontal = horizontalPadding, vertical = 8.dp)
+        ) {
+            // Create references for constraint layout
+            val (titleRef, connectButtonRef, statusRef, visualizerRef, keyboardRef, controlsRef, progressRef) = createRefs()
         
         // 1. Song Title at top (with proper padding)
         Text(
@@ -110,38 +185,41 @@ fun PianoLearningScreen(
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         )
         
-        // 4. Musical Staff (top half of screen)
-        MusicalStaff(
-            currentNote = currentNote,
-            notes = songNotes.take(8), // Show first 8 notes
-            modifier = Modifier
-                .constrainAs(staffRef) {
-                    top.linkTo(statusRef.bottom, margin = 8.dp)
-                    start.linkTo(parent.start)
-                    end.linkTo(parent.end)
-                    bottom.linkTo(keyboardRef.top)
-                    height = Dimension.fillToConstraints
-                    width = Dimension.fillToConstraints
-                }
-                .fillMaxWidth()
-        )
-        
-        // 5. Visual Piano Keyboard (bottom half, larger)
-        PianoKeyboard(
-            currentNote = currentNote?.midiNote,
-            highlightedNotes = highlightedNotes,
-            onNoteClick = onNoteClick, // Always allow virtual keyboard, even when MIDI device is connected
-            modifier = Modifier
-                .constrainAs(keyboardRef) {
-                    top.linkTo(staffRef.bottom, margin = 8.dp)
-                    start.linkTo(parent.start)
-                    end.linkTo(parent.end)
-                    bottom.linkTo(controlsRef.top, margin = 8.dp)
-                    width = Dimension.fillToConstraints
-                    height = Dimension.fillToConstraints
-                }
-                .fillMaxWidth()
-        )
+            // 4. Waterfall Visualizer (middle area)
+            WaterfallVisualizer(
+                songNotes = songNotes,
+                currentTime = currentTime, // Current playback time in ms
+                octaveStart = currentOctaveStart,
+                isPlaying = isPlaying,
+                modifier = Modifier
+                    .constrainAs(visualizerRef) {
+                        top.linkTo(statusRef.bottom, margin = 8.dp)
+                        start.linkTo(parent.start)
+                        end.linkTo(parent.end)
+                        bottom.linkTo(keyboardRef.top)
+                        height = Dimension.fillToConstraints
+                        width = Dimension.fillToConstraints
+                    }
+                    .fillMaxWidth()
+            )
+            
+            // 5. Visual Piano Keyboard (bottom half, larger)
+            PianoKeyboard(
+                currentNote = currentNote?.midiNote,
+                highlightedNotes = highlightedNotes,
+                onNoteClick = onNoteClick,
+                octaveStart = currentOctaveStart,
+                modifier = Modifier
+                    .constrainAs(keyboardRef) {
+                        top.linkTo(visualizerRef.bottom, margin = 8.dp)
+                        start.linkTo(parent.start)
+                        end.linkTo(parent.end)
+                        bottom.linkTo(controlsRef.top, margin = 8.dp)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    }
+                    .fillMaxWidth()
+            )
         
         // 6. Controls (bottom left - pause button)
         Row(
@@ -193,6 +271,7 @@ fun PianoLearningScreen(
                 }
                 .fillMaxWidth(0.5f)
         )
+        }
     }
 }
 
@@ -236,345 +315,9 @@ fun ConnectionStatusIndicator(
     }
 }
 
-/**
- * Enum for key highlight colors
- */
-enum class KeyHighlightColor {
-    RED, YELLOW, LIGHT_BLUE, NONE
-}
 
-/**
- * Visual piano keyboard matching the image design
- * Features: 14 white keys, 10 black keys, black rounded frame, glossy white keys
- * Can be made interactive for virtual MIDI input
- * Supports multiple highlight colors (red, yellow, light blue, green, orange)
- * 
- * @param octaveStart MIDI note number for the starting C note (e.g., 24 for C1, 48 for C3)
- *                    The keyboard will display 2 octaves starting from this note
- */
-@Composable
-fun PianoKeyboard(
-    currentNote: Int?,
-    highlightedNotes: Map<Int, KeyHighlightColor> = emptyMap(),
-    onNoteClick: ((Int) -> Unit)? = null,
-    octaveStart: Int = 48, // Default to C3 (48)
-    modifier: Modifier = Modifier
-) {
-    // Calculate white keys for 2 octaves starting from octaveStart
-    // White keys pattern: C, D, E, F, G, A, B (repeated 2 times)
-    val whiteKeys = remember(octaveStart) {
-        val firstOctave = listOf(
-            octaveStart,      // C
-            octaveStart + 2,  // D
-            octaveStart + 4,  // E
-            octaveStart + 5,  // F
-            octaveStart + 7,  // G
-            octaveStart + 9,  // A
-            octaveStart + 11  // B
-        )
-        val secondOctave = listOf(
-            octaveStart + 12, // C
-            octaveStart + 14, // D
-            octaveStart + 16, // E
-            octaveStart + 17, // F
-            octaveStart + 19, // G
-            octaveStart + 21, // A
-            octaveStart + 23  // B
-        )
-        firstOctave + secondOctave
-    }
-    
-    // Calculate black keys for 2 octaves
-    // Black keys pattern: C#, D#, F#, G#, A# (repeated 2 times, no black keys after E and B)
-    val blackKeys = remember(octaveStart) {
-        val firstOctave = listOf(
-            octaveStart + 1,  // C#
-            octaveStart + 3,  // D#
-            octaveStart + 6,  // F#
-            octaveStart + 8,  // G#
-            octaveStart + 10  // A#
-        )
-        val secondOctave = listOf(
-            octaveStart + 13, // C#
-            octaveStart + 15, // D#
-            octaveStart + 18, // F#
-            octaveStart + 20, // G#
-            octaveStart + 22  // A#
-        )
-        firstOctave + secondOctave
-    }
-    
-    // Helper function to get note label (without octave)
-    fun getNoteLabel(midiNote: Int): String {
-        val note = midiNote % 12
-        return when (note) {
-            0 -> "C"
-            1 -> "C#"
-            2 -> "D"
-            3 -> "D#"
-            4 -> "E"
-            5 -> "F"
-            6 -> "F#"
-            7 -> "G"
-            8 -> "G#"
-            9 -> "A"
-            10 -> "A#"
-            11 -> "B"
-            else -> ""
-        }
-    }
-    
-    // Helper function to get highlight color
-    fun getKeyColor(note: Int, isBlack: Boolean): Color {
-        val highlightColor = highlightedNotes[note]
-        return when (highlightColor) {
-            KeyHighlightColor.RED -> Color(0xFFF44336) // Red
-            KeyHighlightColor.YELLOW -> Color(0xFFFFEB3B) // Yellow
-            KeyHighlightColor.LIGHT_BLUE -> Color(0xFF81D4FA) // Light Blue
-            KeyHighlightColor.NONE, null -> {
-                if (currentNote == note) {
-                    Color(0xFF4CAF50) // Green for current note (matching image)
-                } else {
-                    if (isBlack) Color(0xFF1A1A1A) else Color(0xFFFFFEFE)
-                }
-            }
-        }
-    }
-    
-    // Helper function to check if key is highlighted (for orange/green highlights)
-    fun isKeyHighlighted(note: Int): Boolean {
-        val highlightColor = highlightedNotes[note]
-        return highlightColor != null && highlightColor != KeyHighlightColor.NONE
-    }
-    
-    // Black frame with rounded corners (no outer gray border)
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black)
-            .padding(2.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-                // White keys layer
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(1.dp)
-                ) {
-                    whiteKeys.forEachIndexed { index, note ->
-                        val highlightColor = highlightedNotes[note]
-                        val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
-                        val isActive = currentNote == note || isHighlighted
-                        val keyColor = getKeyColor(note, false)
-                        
-                        // Determine highlight overlay color
-                        val overlayColor = when {
-                            currentNote == note -> Color(0xFF4CAF50).copy(alpha = 0.9f) // Green
-                            highlightColor == KeyHighlightColor.YELLOW -> Color(0xFFFFA500).copy(alpha = 0.7f) // Orange
-                            else -> null
-                        }
-                        
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .then(
-                                    if (onNoteClick != null) {
-                                        Modifier.clickable { onNoteClick(note) }
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                        ) {
-                            // White key with rounded bottom edges and glossy effect
-                            Canvas(
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                val keyWidth = size.width
-                                val keyHeight = size.height
-                                val cornerRadius = 8.dp.toPx()
-                                
-                                // Create rounded rectangle path for white key
-                                val path = Path().apply {
-                                    moveTo(0f, 0f)
-                                    lineTo(keyWidth, 0f)
-                                    lineTo(keyWidth, keyHeight - cornerRadius)
-                                    arcTo(
-                                        rect = androidx.compose.ui.geometry.Rect(
-                                            offset = Offset(keyWidth - cornerRadius * 2, keyHeight - cornerRadius * 2),
-                                            size = Size(cornerRadius * 2, cornerRadius * 2)
-                                        ),
-                                        startAngleDegrees = 0f,
-                                        sweepAngleDegrees = 90f,
-                                        forceMoveTo = false
-                                    )
-                                    lineTo(cornerRadius, keyHeight)
-                                    arcTo(
-                                        rect = androidx.compose.ui.geometry.Rect(
-                                            offset = Offset(0f, keyHeight - cornerRadius * 2),
-                                            size = Size(cornerRadius * 2, cornerRadius * 2)
-                                        ),
-                                        startAngleDegrees = 90f,
-                                        sweepAngleDegrees = 90f,
-                                        forceMoveTo = false
-                                    )
-                                    close()
-                                }
-                                
-                                // Draw white key with gradient for glossy effect
-                                drawPath(
-                                    path = path,
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.White,
-                                            Color(0xFFF5F5F5),
-                                            Color(0xFFE8E8E8)
-                                        )
-                                    )
-                                )
-                                
-                                // Draw highlight overlay if active
-                                overlayColor?.let { color ->
-                                    drawPath(
-                                        path = path,
-                                        color = color
-                                    )
-                                }
-                                
-                                // Draw subtle border
-                                drawPath(
-                                    path = path,
-                                    color = Color(0xFFCCCCCC),
-                                    style = Stroke(width = 1.dp.toPx())
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                // Black keys layer (positioned absolutely over white keys)
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    val totalWidth = maxWidth
-                    val totalHeight = maxHeight
-                    
-                    // Calculate positions for black keys relative to white keys
-                    // Pattern: C-C#, D-D#, E-none, F-F#, G-G#, A-A#, B-none (repeats for 2 octaves)
-                    val whiteKeyWidth = totalWidth / whiteKeys.size
-                    // First octave: positions after C(0), D(1), F(3), G(4), A(5)
-                    // Second octave: positions after C(7), D(8), F(10), G(11), A(12)
-                    val blackKeyPositions = listOf(
-                        whiteKeyWidth * 0.65f,  // C# after 1st C (index 0)
-                        whiteKeyWidth * 1.65f,  // D# after 1st D (index 1)
-                        whiteKeyWidth * 3.65f,  // F# after 1st F (index 3)
-                        whiteKeyWidth * 4.65f,  // G# after 1st G (index 4)
-                        whiteKeyWidth * 5.65f,  // A# after 1st A (index 5)
-                        // Second octave positions
-                        whiteKeyWidth * 7.65f,  // C# after 2nd C (index 7)
-                        whiteKeyWidth * 8.65f,  // D# after 2nd D (index 8)
-                        whiteKeyWidth * 10.65f, // F# after 2nd F (index 10)
-                        whiteKeyWidth * 11.65f, // G# after 2nd G (index 11)
-                        whiteKeyWidth * 12.65f  // A# after 2nd A (index 12)
-                    )
-                    
-                    blackKeys.forEachIndexed { index, note ->
-                        val highlightColor = highlightedNotes[note]
-                        val isHighlighted = highlightColor != null && highlightColor != KeyHighlightColor.NONE
-                        val isActive = currentNote == note || isHighlighted
-                        
-                        // Determine highlight overlay color
-                        val overlayColor = when {
-                            currentNote == note -> Color(0xFF4CAF50).copy(alpha = 0.9f) // Green
-                            highlightColor == KeyHighlightColor.YELLOW -> Color(0xFFFFA500).copy(alpha = 0.7f) // Orange
-                            else -> null
-                        }
-                        
-                        val blackKeyWidth = whiteKeyWidth * 0.65f // Narrower than white keys
-                        val blackKeyHeight = totalHeight * 0.65f // Shorter than white keys
-                        
-                        Box(
-                            modifier = Modifier
-                                .width(blackKeyWidth)
-                                .height(blackKeyHeight)
-                                .offset(x = blackKeyPositions[index], y = 0.dp)
-                                .then(
-                                    if (onNoteClick != null) {
-                                        Modifier.clickable { onNoteClick(note) }
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                        ) {
-                            // Black key with rounded bottom edges
-                            Canvas(
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                val keyWidth = size.width
-                                val keyHeight = size.height
-                                val cornerRadius = 4.dp.toPx()
-                                
-                                // Create rounded rectangle path for black key
-                                val path = Path().apply {
-                                    moveTo(0f, 0f)
-                                    lineTo(keyWidth, 0f)
-                                    lineTo(keyWidth, keyHeight - cornerRadius)
-                                    arcTo(
-                                        rect = androidx.compose.ui.geometry.Rect(
-                                            offset = Offset(keyWidth - cornerRadius * 2, keyHeight - cornerRadius * 2),
-                                            size = Size(cornerRadius * 2, cornerRadius * 2)
-                                        ),
-                                        startAngleDegrees = 0f,
-                                        sweepAngleDegrees = 90f,
-                                        forceMoveTo = false
-                                    )
-                                    lineTo(cornerRadius, keyHeight)
-                                    arcTo(
-                                        rect = androidx.compose.ui.geometry.Rect(
-                                            offset = Offset(0f, keyHeight - cornerRadius * 2),
-                                            size = Size(cornerRadius * 2, cornerRadius * 2)
-                                        ),
-                                        startAngleDegrees = 90f,
-                                        sweepAngleDegrees = 90f,
-                                        forceMoveTo = false
-                                    )
-                                    close()
-                                }
-                                
-                                // Draw black key with subtle gradient
-                                drawPath(
-                                    path = path,
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color(0xFF1A1A1A),
-                                            Color(0xFF0F0F0F),
-                                            Color(0xFF000000)
-                                        )
-                                    )
-                                )
-                                
-                                // Draw highlight overlay if active
-                                overlayColor?.let { color ->
-                                    drawPath(
-                                        path = path,
-                                        color = color
-                                    )
-                                }
-                                
-                                // Draw subtle border
-                                drawPath(
-                                    path = path,
-                                    color = Color(0xFF000000),
-                                    style = Stroke(width = 0.5.dp.toPx())
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+
+
 
 
 /**
@@ -708,5 +451,89 @@ fun getNoteName(midiNote: Int): String {
     val note = midiNote % 12
     val noteName = noteNames[note]
     return "$noteName$octave"
+}
+/**
+ * Waterfall Visualizer component for falling notes
+ */
+@Composable
+fun WaterfallVisualizer(
+    songNotes: List<com.midi.pianomidi.Note>,
+    currentTime: Long,
+    octaveStart: Int = 48,
+    isPlaying: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val whiteKeyWidthPx = size.width / 14
+        val leadTime = 3000L // 3 seconds of notes shown on screen
+        
+        // Filter notes that are within the visible window (now to future)
+        // Or slightly in the past to show them "hitting" the keys
+        val visibleNotes = songNotes.filter { 
+            it.timing >= currentTime - 500 && it.timing <= currentTime + leadTime 
+        }
+        
+        visibleNotes.forEach { note ->
+            val relativeTiming = note.timing - currentTime
+            
+            // Y position: 0 is top, height is hit line (keys)
+            // leadTime corresponds to height
+            val progress = 1f - (relativeTiming.toFloat() / leadTime)
+            val currentY = progress * size.height
+            
+            // Map note to horizontal position
+            val octaveNote = note.midiNote % 12
+            val relativeNote = note.midiNote - octaveStart
+            val octaveIndex = relativeNote / 12
+            
+            val x = when (octaveNote) {
+                0 -> (octaveIndex * 7 + 0.5f) * whiteKeyWidthPx // C
+                2 -> (octaveIndex * 7 + 1.5f) * whiteKeyWidthPx // D
+                4 -> (octaveIndex * 7 + 2.5f) * whiteKeyWidthPx // E
+                5 -> (octaveIndex * 7 + 3.5f) * whiteKeyWidthPx // F
+                7 -> (octaveIndex * 7 + 4.5f) * whiteKeyWidthPx // G
+                9 -> (octaveIndex * 7 + 5.5f) * whiteKeyWidthPx // A
+                11 -> (octaveIndex * 7 + 6.5f) * whiteKeyWidthPx // B
+                1 -> (octaveIndex * 7 + 1.0f) * whiteKeyWidthPx // C#
+                3 -> (octaveIndex * 7 + 2.0f) * whiteKeyWidthPx // D#
+                6 -> (octaveIndex * 7 + 4.0f) * whiteKeyWidthPx // F#
+                8 -> (octaveIndex * 7 + 5.0f) * whiteKeyWidthPx // G#
+                10 -> (octaveIndex * 7 + 6.0f) * whiteKeyWidthPx // A#
+                else -> (octaveIndex * 7 + 0.5f) * whiteKeyWidthPx
+            }
+            
+            // Draw pill shape
+            val pillWidth = 20.dp.toPx()
+            // Height based on duration
+            val pillHeight = (note.duration.toFloat() / leadTime) * size.height
+            
+            val baseColor = when (octaveNote) {
+                0, 4, 7 -> NeonGreen
+                2, 5, 9 -> Color(0xFFFFEB3B) // Yellow
+                else -> Color(0xFFFF6B35) // Orange
+            }
+            
+            val alpha = if (relativeTiming < 0) 1f + (relativeTiming / 500f) else 1f
+            val finalAlpha = alpha.coerceIn(0f, 1f)
+
+            if (currentY > -pillHeight && currentY < size.height + pillHeight) {
+                // Glow
+                drawRoundRect(
+                    color = baseColor.copy(alpha = finalAlpha * 0.3f),
+                    topLeft = Offset(x - pillWidth * 0.75f, currentY - pillHeight - 5.dp.toPx()),
+                    size = Size(pillWidth * 1.5f, pillHeight + 10.dp.toPx()),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(pillWidth, pillWidth)
+                )
+                
+                // Main pill
+                drawRoundRect(
+                    color = baseColor.copy(alpha = finalAlpha),
+                    topLeft = Offset(x - pillWidth / 2, currentY - pillHeight),
+                    size = Size(pillWidth, pillHeight),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(pillWidth, pillWidth)
+                )
+            }
+        }
+    }
 }
 

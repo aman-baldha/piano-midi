@@ -98,9 +98,12 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(DarkBackground)
     ) {
+        
+        // Right Side Main Content
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .fillMaxHeight()
                 .padding(horizontal = horizontalPadding, vertical = 20.dp)
         ) {
             // Top App Bar with Dashboard title
@@ -143,34 +146,18 @@ fun DashboardScreen(
                         .fillMaxHeight()
                 )
                 
-                // Right Side - Feature Cards (takes 55% width, all stacked vertically line by line)
+                // Right Side - Feature Cards (restacked)
                 Column(
                     modifier = Modifier
                         .weight(0.55f)
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Learn Piano Card
-                    FeatureCard(
-                        title = "Learn Piano",
-                        description = "Guided lessons & falling notes rhythm games.",
-                        icon = Icons.Default.Star,
-                        iconColor = OrangeAccent,
-                        buttonText = "Resume Lesson",
-                        buttonIcon = Icons.Default.PlayArrow,
-                        enabled = isConnected,
-                        onClick = onNavigateToLearning,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        backgroundImageResId = R.drawable.bg_learn_piano
-                    )
-                    
                     // Free Play Card
                     FeatureCard(
                         title = "Free Play",
                         description = "Jam without limits on the on-screen keys.",
-                        icon = Icons.Default.Star,
+                        icon = Icons.Default.Add,
                         iconColor = NeonGreen,
                         buttonText = "Open Keys",
                         buttonIcon = Icons.Default.PlayArrow,
@@ -186,7 +173,7 @@ fun DashboardScreen(
                     FeatureCard(
                         title = "Song Library",
                         description = "Browse classical & pop hits.",
-                        icon = Icons.Default.Star,
+                        icon = Icons.Default.List,
                         iconColor = NeonGreen,
                         buttonText = "Browse",
                         buttonIcon = null,

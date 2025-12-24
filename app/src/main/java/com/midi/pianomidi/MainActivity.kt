@@ -25,10 +25,12 @@ import androidx.compose.ui.unit.dp
 import com.midi.pianomidi.ui.BluetoothEnableDialog
 import com.midi.pianomidi.ui.DeviceSelectionDialog
 import com.midi.pianomidi.ui.PianoLearningScreen
-import com.midi.pianomidi.ui.KeyHighlightColor
 import com.midi.pianomidi.ui.DashboardScreen
+import com.midi.pianomidi.KeyHighlightColor
 import com.midi.pianomidi.ui.ConnectPianoScreen
 import com.midi.pianomidi.ui.FreePlayScreen
+import com.midi.pianomidi.ui.PianoSettingsDialog
+import com.midi.pianomidi.SuperrServiceManager
 import com.midi.pianomidi.ui.theme.PianomidiTheme
 import com.midi.pianomidi.BluetoothHelper
 
@@ -267,7 +269,16 @@ fun DashboardScreenContent(
 ) {
     val context = LocalContext.current
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    var selectedSong by remember { mutableStateOf<com.midi.pianomidi.Song?>(null) }
     var showDeviceDialog by remember { mutableStateOf(false) }
+    
+    // Piano Settings State
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var sensitivity by remember { mutableStateOf(50) }
+    var pianoTheme by remember { mutableStateOf(0) }
+    var transpose by remember { mutableStateOf(0) }
+    
+    val superrServiceManager = remember { SuperrServiceManager.getInstance(context) }
     var showBluetoothDialog by remember { mutableStateOf(false) }
     var availableDevices by remember { mutableStateOf<List<MidiDeviceWrapper>>(emptyList()) }
     
@@ -319,6 +330,21 @@ fun DashboardScreenContent(
             }
         )
     }
+
+    if (showSettingsDialog) {
+        PianoSettingsDialog(
+            onDismiss = { showSettingsDialog = false },
+            superrServiceManager = superrServiceManager,
+            initialSensitivity = sensitivity,
+            initialTheme = pianoTheme,
+            initialTranspose = transpose,
+            onSettingsChanged = { s, t, tr ->
+                sensitivity = s
+                pianoTheme = t
+                transpose = tr
+            }
+        )
+    }
     
     when (currentScreen) {
         Screen.Dashboard -> {
@@ -331,12 +357,10 @@ fun DashboardScreenContent(
                     currentScreen = Screen.FreePlay
                 },
                 onNavigateToSongLibrary = {
-                    // TODO: Implement Song Library screen
-                    // For now, just show a placeholder
+                    currentScreen = Screen.SongLibrary
                 },
                 onNavigateToSettings = {
-                    // TODO: Implement Settings screen
-                    // For now, just show a placeholder
+                    showSettingsDialog = true
                 },
                 onManageConnection = {
                     // Navigate to Connect Piano screen
@@ -351,7 +375,11 @@ fun DashboardScreenContent(
                 onRequestBluetoothEnable = onRequestBluetoothEnable,
                 onNavigateBack = {
                     currentScreen = Screen.Dashboard
-                }
+                },
+                onSettingsClick = {
+                    showSettingsDialog = true
+                },
+                initialSong = selectedSong
             )
         }
         Screen.FreePlay -> {
@@ -361,7 +389,25 @@ fun DashboardScreenContent(
                     currentScreen = Screen.Dashboard
                 },
                 onSettingsClick = {
-                    // TODO: Implement Settings screen
+                    showSettingsDialog = true
+                }
+            )
+        }
+        
+        Screen.SongLibrary -> {
+            com.midi.pianomidi.ui.SongLibraryScreen(
+                onNavigateBack = {
+                    currentScreen = Screen.Dashboard
+                },
+                onSongSelect = { song ->
+                    selectedSong = song
+                    currentScreen = Screen.Learning // Re-use learning as player for now
+                },
+                onNavigateToHome = {
+                    currentScreen = Screen.Dashboard
+                },
+                onNavigateToSettings = {
+                    showSettingsDialog = true
                 }
             )
         }
@@ -396,7 +442,8 @@ private enum class Screen {
     Dashboard,
     Learning,
     FreePlay,
-    ConnectPiano
+    ConnectPiano,
+    SongLibrary
 }
 
 @Composable
@@ -405,6 +452,8 @@ fun PianoLearningScreenContent(
     onControllerCreated: (LearningModeController) -> Unit,
     onRequestBluetoothEnable: () -> Unit,
     onNavigateBack: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    initialSong: com.midi.pianomidi.Song? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -423,7 +472,7 @@ fun PianoLearningScreenContent(
     var highlightedNotes by remember { mutableStateOf<Map<Int, KeyHighlightColor>>(emptyMap()) }
     
     // Initialize song and learning controller
-    val song = remember { TwinkleTwinkleLittleStar.createSong() }
+    val song = remember(initialSong) { initialSong ?: TwinkleTwinkleLittleStar.createSong() }
     totalNotes = song.notes.size
     
     // Initialize piano sound player
@@ -699,6 +748,8 @@ fun PianoLearningScreenContent(
         totalNotes = totalNotes,
         highlightedNotes = highlightedNotes,
         isPlaying = isPlaying,
+        onNavigateBack = onNavigateBack,
+        onSettingsClick = onSettingsClick,
         onConnectClick = {
             if (isConnected) {
                 // Disconnect
