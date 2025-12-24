@@ -36,6 +36,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import com.midi.pianomidi.BluetoothHelper
 import com.midi.pianomidi.MidiConnectionManager
 import com.midi.pianomidi.MidiConnectionCallback
@@ -371,10 +373,17 @@ fun ConnectPianoScreen(
                 )
             )
     ) {
+        // Grid Background for professional look
+        GridBackgroundPattern(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(0.3f)
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 24.dp)
         ) {
             // Top Bar - Fixed height
             ConnectPianoHeader(
@@ -382,153 +391,184 @@ fun ConnectPianoScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             
-            // Central Content Area - Scrollable and responsive
-            Column(
+            // Central Content Area - Weighted to take up available space, NOT scrollable
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(
-                        state = rememberScrollState(),
-                        enabled = true
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
-                // Responsive spacing based on screen size
-                val verticalSpacing = if (isLandscape) 16.dp else 24.dp
-                
-                BluetoothScannerAnimation(
-                    isScanning = isScanning,
-                    modifier = Modifier.size(animationSize)
-                )
-                
-                Spacer(modifier = Modifier.height(verticalSpacing))
-                
-                // Status Text - Responsive font size
-                val titleFontSize = remember(screenHeight) {
-                    if (screenHeight < 600.dp) 18.sp else 22.sp
-                }
-                
-                Text(
-                    text = when {
-                        isConnecting -> "Connecting..."
-                        foundDevices.isNotEmpty() -> "Found ${foundDevices.size} Device(s)"
-                        isScanning -> "Looking for Piano..."
-                        else -> "Ready to Connect"
-                    },
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        fontSize = titleFontSize,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    ),
-                    modifier = Modifier.padding(bottom = 8.dp),
-                    textAlign = TextAlign.Center
-                )
-                
-                val bodyFontSize = remember(screenHeight) {
-                    if (screenHeight < 600.dp) 12.sp else 14.sp
-                }
-                
-                Text(
-                    text = when {
-                        isConnecting -> "Please wait while we connect to your device..."
-                        foundDevices.isNotEmpty() -> "Tap on a device to connect"
-                        isScanning -> "Ensure your MIDI device is powered on and within Bluetooth range."
-                        else -> "Tap 'Scan & Connect' to find your MIDI piano"
-                    },
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = bodyFontSize,
-                        color = TextSecondary,
-                        lineHeight = 20.sp
-                    ),
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    textAlign = TextAlign.Center
-                )
-                
-                // Device List - Show found devices as round buttons
-                if (foundDevices.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(verticalSpacing))
-                    
-                    // Device buttons in a scrollable row with responsive sizing
+                if (isLandscape && foundDevices.isNotEmpty()) {
+                    // Landscape Split Screen: Animation/Status Left, Devices Right
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxSize(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        foundDevices.forEach { device ->
-                            DeviceRoundButton(
-                                device = device,
-                                onClick = {
-                                    if (!isConnecting) {
-                                        isConnecting = true
-                                        isScanning = false
-                                        midiConnectionManager.stopScan()
-                                        // INTEGRATION: Connect to selected device
-                                        midiConnectionManager.connectToDevice(device)
-                                    }
-                                },
-                                isConnecting = isConnecting
+                        // Left Column: Animation & Status
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            BluetoothScannerAnimation(
+                                isScanning = isScanning,
+                                modifier = Modifier.size(animationSize * 0.7f)
                             )
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            StatusSection(
+                                isConnecting = isConnecting,
+                                foundDevicesCount = foundDevices.size,
+                                isScanning = isScanning,
+                                titleFontSize = 22.sp,
+                                bodyFontSize = 14.sp
+                            )
+                        }
+                        
+                        // Right Column: Devices List
+                        Box(
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .fillMaxHeight(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(vertical = 16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                foundDevices.forEach { device ->
+                                    MidiDeviceGlassCard(
+                                        device = device,
+                                        onClick = {
+                                            if (!isConnecting) {
+                                                isConnecting = true
+                                                isScanning = false
+                                                midiConnectionManager.stopScan()
+                                                midiConnectionManager.connectToDevice(device)
+                                            }
+                                        },
+                                        isConnecting = isConnecting
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Default Vertical Layout (Portrait or Scanning)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        val verticalSpacing = if (isLandscape) 8.dp else 16.dp
+                        
+                        // Adaptive Scanner Animation
+                        val adaptiveAnimationSize by animateDpAsState(
+                            targetValue = if (foundDevices.isNotEmpty()) animationSize * 0.5f else animationSize,
+                            animationSpec = spring(stiffness = Spring.StiffnessLow),
+                            label = "animation_size"
+                        )
+
+                        BluetoothScannerAnimation(
+                            isScanning = isScanning,
+                            modifier = Modifier.size(adaptiveAnimationSize)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(verticalSpacing))
+                        
+                        StatusSection(
+                            isConnecting = isConnecting,
+                            foundDevicesCount = foundDevices.size,
+                            isScanning = isScanning,
+                            titleFontSize = remember(screenHeight) { if (screenHeight < 600.dp) 20.sp else 26.sp },
+                            bodyFontSize = remember(screenHeight) { if (screenHeight < 600.dp) 13.sp else 15.sp }
+                        )
+                        
+                        if (foundDevices.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 220.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    foundDevices.forEach { device ->
+                                        MidiDeviceGlassCard(
+                                            device = device,
+                                            onClick = {
+                                                if (!isConnecting) {
+                                                    isConnecting = true
+                                                    isScanning = false
+                                                    midiConnectionManager.stopScan()
+                                                    midiConnectionManager.connectToDevice(device)
+                                                }
+                                            },
+                                            isConnecting = isConnecting
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
                 }
-                
-                // Extra spacing at bottom of scrollable area to ensure button visibility
-                Spacer(modifier = Modifier.height(16.dp))
             }
             
-            // Bottom Action Area - Fixed at bottom, always visible with responsive padding
-            val bottomPadding = remember(screenHeight) {
-                if (screenHeight < 600.dp) 8.dp else 16.dp
-            }
-            
+            // Bottom Action Area
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = bottomPadding),
+                    .padding(bottom = if (isLandscape) 16.dp else 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Scan & Connect Button - Always show, allow stop scan when scanning
                 if (isConnecting) {
-                    // Show connecting state
-                    Button(
-                        onClick = { /* Disabled */ },
-                        enabled = false,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonGreen.copy(alpha = 0.5f),
-                            contentColor = Color.Black
-                        )
+                            .height(64.dp)
+                            .background(
+                                color = NeonGreen.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(20.dp)
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = Color.Black,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Connecting...",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = NeonGreen,
+                                strokeWidth = 3.dp
                             )
-                        )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "Connecting to MIDI...",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = NeonGreen,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
                     }
                 } else {
                     ScanConnectButton(
                         isScanning = isScanning,
                         onClick = {
                             if (isScanning) {
-                                // Stop scanning
                                 isScanning = false
                                 midiConnectionManager.stopScan()
                             } else {
-                                // Check permissions and Bluetooth before scanning
                                 startScanWithChecks()
                             }
                         },
@@ -536,23 +576,142 @@ fun ConnectPianoScreen(
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(24.dp))
-                
-                // Troubleshooting Link
-                Text(
-                    text = "Having trouble connecting?",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 14.sp,
-                        color = TextSecondary.copy(alpha = 0.7f)
+               // Spacer(modifier = Modifier.height(10.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Premium Glass Card for MIDI Devices
+ */
+@Composable
+fun MidiDeviceGlassCard(
+    device: MidiDeviceWrapper,
+    onClick: () -> Unit,
+    isConnecting: Boolean,
+    modifier: Modifier = Modifier
+) {
+    // Animation for entry
+    val visible = remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible.value = true }
+    
+    val scale by animateFloatAsState(
+        targetValue = if (visible.value) 1f else 0.8f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "entry_scale"
+    )
+    
+    val alpha by animateFloatAsState(
+        targetValue = if (visible.value) 1f else 0f,
+        animationSpec = tween(500),
+        label = "entry_alpha"
+    )
+
+    // Pulsating neon glow animation
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse_glow")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_alpha"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer(scaleX = scale, scaleY = scale, alpha = alpha)
+            .width(160.dp)
+            .height(180.dp)
+            .then(
+                if (!isConnecting) {
+                    Modifier.shadow(
+                        elevation = 12.dp,
+                        shape = RoundedCornerShape(24.dp),
+                        spotColor = NeonGreen.copy(alpha = glowAlpha)
+                    )
+                } else Modifier
+            )
+            .background(
+                color = Color(0xFF202020).copy(alpha = 0.8f),
+                shape = RoundedCornerShape(24.dp)
+            )
+            .clickable(enabled = !isConnecting, onClick = onClick)
+            .padding(2.dp) // Stroke effect
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.15f),
+                        NeonGreen.copy(alpha = 0.05f),
+                        Color.Transparent
+                    )
+                ),
+                shape = RoundedCornerShape(24.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Device Icon Backdrop with extra glow if Bluetooth
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(
+                        color = if (device.type == com.midi.pianomidi.DeviceType.BLUETOOTH) 
+                            NeonGreen.copy(alpha = 0.2f) else OrangeAccent.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(32.dp)
                     ),
-                    modifier = Modifier.clickable {
-                        // TODO: Show troubleshooting dialog or navigate to help screen
-                    }
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (device.type == com.midi.pianomidi.DeviceType.BLUETOOTH) 
+                        Icons.Default.Place else Icons.Default.Build,
+                    contentDescription = null,
+                    tint = if (device.type == com.midi.pianomidi.DeviceType.BLUETOOTH) NeonGreen else OrangeAccent,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = device.name,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    color = TextPrimary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp
+                ),
+                maxLines = 1,
+                textAlign = TextAlign.Center
+            )
+            
+            Text(
+                text = device.type.name,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            
+            if (isConnecting) {
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                    color = NeonGreen,
+                    trackColor = NeonGreen.copy(alpha = 0.1f)
                 )
             }
         }
     }
 }
+
 
 /**
  * Header Bar Component
@@ -812,6 +971,75 @@ fun ScanConnectButton(
                 )
             )
         }
+    }
+}
+
+/**
+ * Status Section Composable
+ */
+@Composable
+fun StatusSection(
+    isConnecting: Boolean,
+    foundDevicesCount: Int,
+    isScanning: Boolean,
+    titleFontSize: androidx.compose.ui.unit.TextUnit,
+    bodyFontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Status Text - Professional typography
+        Text(
+            text = when {
+                isConnecting -> "Connecting..."
+                foundDevicesCount > 0 -> "Devices Discovered"
+                isScanning -> "Scanning for Piano"
+                else -> "Start Your Performance"
+            },
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontSize = titleFontSize,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (foundDevicesCount > 0) NeonGreen else TextPrimary,
+                letterSpacing = (-0.5).sp
+            ),
+            textAlign = TextAlign.Center
+        )
+        
+        if (foundDevicesCount > 0 && !isConnecting) {
+            Surface(
+                modifier = Modifier.padding(top = 4.dp),
+                color = NeonGreen.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = "$foundDevicesCount READY TO CONNECT",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = NeonGreen,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                )
+            }
+        }
+        
+        Text(
+            text = when {
+                isConnecting -> "Establishing a secure connection to your MIDI device."
+                foundDevicesCount > 0 -> "Select your piano to begin."
+                isScanning -> "Make sure your piano is in pairing mode and nearby."
+                else -> "Connect your digital piano to unlock full features."
+            },
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = bodyFontSize,
+                color = TextSecondary,
+                lineHeight = 22.sp
+            ),
+            modifier = Modifier.padding(top = 8.dp),
+            textAlign = TextAlign.Center
+        )
     }
 }
 
