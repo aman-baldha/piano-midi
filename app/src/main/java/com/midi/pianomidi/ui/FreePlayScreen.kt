@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.midi.pianomidi.MidiConnectionManager
 import com.midi.pianomidi.MidiInputCallback
-import com.midi.pianomidi.Note
 import com.midi.pianomidi.NoteVisualizerState
 import com.midi.pianomidi.KeyHighlightColor
 import com.midi.pianomidi.PianoNoteHandler
