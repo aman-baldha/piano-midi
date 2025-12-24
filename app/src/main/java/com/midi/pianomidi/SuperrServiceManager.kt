@@ -56,12 +56,17 @@ class SuperrServiceManager private constructor(
      */
     @SuppressLint("MissingPermission")
     fun connectToDevice(device: BluetoothDevice) {
-        if (bluetoothGatt != null && connectedDevice?.address == device.address) {
-            Log.d(TAG, "Already connected to device: ${device.address}")
-            return
+        if (bluetoothGatt != null) {
+            if (connectedDevice?.address == device.address) {
+                Log.d(TAG, "Already connected to device: ${device.address}")
+                // If already connected, maybe rediscover services just in case
+                bluetoothGatt?.discoverServices()
+                return
+            } else {
+                Log.d(TAG, "Disconnecting from previous device to connect to new one")
+                disconnect()
+            }
         }
-        
-        disconnect()
         
         connectedDevice = device
         Log.d(TAG, "Connecting to GATT service on device: ${device.address}")

@@ -95,6 +95,10 @@ class MidiConnectionManager private constructor(
         // Standard MIDI Service UUID (BLE MIDI)
         private val MIDI_SERVICE_UUID = UUID.fromString("03B80E5A-EDE8-4B33-A751-6CE34EC4C700")
         
+        // Protoype Device Name
+        private const val SUPERR_DEVICE_NAME = "Superr_MIDI"
+        
+        
         @Volatile private var INSTANCE: MidiConnectionManager? = null
         
         fun getInstance(context: Context): MidiConnectionManager {
@@ -226,6 +230,9 @@ class MidiConnectionManager private constructor(
                 val filters = listOf(
                     ScanFilter.Builder()
                         .setServiceUuid(ParcelUuid(MIDI_SERVICE_UUID))
+                        .build(),
+                    ScanFilter.Builder()
+                        .setDeviceName(SUPERR_DEVICE_NAME)
                         .build()
                 )
                 val settings = ScanSettings.Builder()
@@ -370,6 +377,14 @@ class MidiConnectionManager private constructor(
                 Log.d(TAG, "RGB controller initialized")
             } catch (e: Exception) {
                 Log.w(TAG, "Could not initialize RGB controller: ${e.message}")
+            }
+            
+            // Integrate Superr Custom Service if it's a Superr device
+            if (wrapper.name == SUPERR_DEVICE_NAME || wrapper.bluetoothDevice?.name == SUPERR_DEVICE_NAME) {
+                wrapper.bluetoothDevice?.let { btDevice ->
+                    Log.d(TAG, "Prototype device detected, connecting to Superr Configuration Service...")
+                    SuperrServiceManager.getInstance(context).connectToDevice(btDevice)
+                }
             }
             
             connectionCallback?.onConnected(wrapper)
@@ -580,6 +595,9 @@ class MidiConnectionManager private constructor(
                 // Release RGB controller
                 rgbController?.release()
                 rgbController = null
+                
+                // Disconnect Superr custom service
+                SuperrServiceManager.getInstance(context).disconnect()
                 
                 device.close()
                 
